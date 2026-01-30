@@ -579,11 +579,11 @@ function App() {
   const totalInside = entrances - exits;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
-      {/* Header */}
-      <header className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-4">
-        <div className="container mx-auto flex items-center justify-between flex-wrap gap-4">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col">
+      {/* Header compact */}
+      <header className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-2 flex-shrink-0">
+        <div className="container mx-auto flex items-center justify-between flex-wrap gap-2">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
             🚶 Compteur de Personnes
           </h1>
 
@@ -651,46 +651,9 @@ function App() {
         </div>
       </header>
 
-      <main className="container mx-auto p-4">
-        {/* Compteurs */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-2xl p-6 text-center shadow-lg shadow-purple-900/30">
-            <div className="text-lg font-medium text-purple-200 mb-2">
-              Détectées
-            </div>
-            <div className="text-5xl font-bold">{detectedPeople}</div>
-            <div className="text-purple-300 text-sm mt-2">En ce moment</div>
-          </div>
-
-          <div className="bg-gradient-to-br from-green-600 to-green-800 rounded-2xl p-6 text-center shadow-lg shadow-green-900/30">
-            <div className="text-lg font-medium text-green-200 mb-2">
-              Entrées
-            </div>
-            <div className="text-5xl font-bold">{entrances}</div>
-            <div className="text-green-300 text-sm mt-2">→ Vers la droite</div>
-          </div>
-
-          <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-6 text-center shadow-lg shadow-blue-900/30">
-            <div className="text-lg font-medium text-blue-200 mb-2">
-              À l'intérieur
-            </div>
-            <div className="text-5xl font-bold">
-              {totalInside}
-            </div>
-            <div className="text-blue-300 text-sm mt-2">
-              {totalInside < 0 ? "Personnes déjà présentes au démarrage" : "Personnes actuellement"}
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-center shadow-lg shadow-red-900/30">
-            <div className="text-lg font-medium text-red-200 mb-2">Sorties</div>
-            <div className="text-5xl font-bold">{exits}</div>
-            <div className="text-red-300 text-sm mt-2">← Vers la gauche</div>
-          </div>
-        </div>
-
-        {/* Zone vidéo */}
-        <div className="relative rounded-2xl overflow-hidden shadow-2xl bg-gray-800">
+      <main className="flex-1 p-2 overflow-hidden">
+        {/* Zone vidéo avec compteurs en overlay */}
+        <div className="relative rounded-xl overflow-hidden shadow-2xl bg-gray-800 h-full">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-800 z-10">
               <div className="text-center">
@@ -713,131 +676,43 @@ function App() {
 
           <canvas
             ref={canvasRef}
-            className="w-full h-auto min-h-[400px] bg-gray-900"
+            className="w-full h-full object-contain bg-gray-900"
           />
 
-          {/* Instructions overlay */}
+          {/* Compteurs en overlay sur la vidéo */}
           {!isLoading && !error && (
-            <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-sm rounded-xl p-4">
-              <div className="flex items-center justify-between text-sm flex-wrap gap-2">
-                {trackingMode === "skeleton" && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 bg-green-500 rounded"></span>
-                      <span>Squelette complet</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 bg-red-500 rounded-full"></span>
-                      <span>Articulations</span>
-                    </div>
-                  </>
-                )}
-                {trackingMode === "torso" && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 bg-green-500 rounded"></span>
-                      <span>Tronc (épaules + hanches)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 bg-red-500 rounded-full"></span>
-                      <span>4 points de référence</span>
-                    </div>
-                  </>
-                )}
-                {trackingMode === "bbox" && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-green-500 rounded"></span>
-                      <span>Boîte englobante</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 bg-white rounded-full"></span>
-                      <span>Centre de la boîte</span>
-                    </div>
-                  </>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="w-8 h-1 bg-yellow-400"></span>
-                  <span>Ligne de comptage</span>
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent p-4 pt-8">
+              <div className="grid grid-cols-4 gap-3">
+                <div className="bg-purple-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-purple-400/30">
+                  <div className="text-sm font-medium text-purple-200">Détectées</div>
+                  <div className="text-3xl font-bold">{detectedPeople}</div>
+                  <div className="text-purple-300 text-xs">En ce moment</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-4 h-4 bg-white rounded-full border-2 border-green-500"></span>
-                  <span>Point de tracking</span>
+
+                <div className="bg-green-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-green-400/30">
+                  <div className="text-sm font-medium text-green-200">Entrées</div>
+                  <div className="text-3xl font-bold">{entrances}</div>
+                  <div className="text-green-300 text-xs">→ Vers la droite</div>
+                </div>
+
+                <div className="bg-blue-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-blue-400/30">
+                  <div className="text-sm font-medium text-blue-200">À l'intérieur</div>
+                  <div className="text-3xl font-bold">{totalInside}</div>
+                  <div className="text-blue-300 text-xs">
+                    {totalInside < 0 ? "Déjà présentes" : "Actuellement"}
+                  </div>
+                </div>
+
+                <div className="bg-red-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-red-400/30">
+                  <div className="text-sm font-medium text-red-200">Sorties</div>
+                  <div className="text-3xl font-bold">{exits}</div>
+                  <div className="text-red-300 text-xs">← Vers la gauche</div>
                 </div>
               </div>
             </div>
           )}
         </div>
-
-        {/* Instructions */}
-        <div className="mt-6 bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            📋 Comment utiliser
-          </h2>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="font-medium text-white mb-2">
-                Instructions générales
-              </h3>
-              <ul className="space-y-2 text-gray-300">
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400">✓</span>
-                  Placez votre ordinateur face à l'entrée du bâtiment
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400">✓</span>
-                  La ligne jaune au centre détecte les passages
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400">✓</span>
-                  Passage vers la droite = Entrée (+1)
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400">✓</span>
-                  Passage vers la gauche = Sortie (+1)
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-yellow-400">⚡</span>
-                  Assurez un bon éclairage pour une meilleure détection
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="font-medium text-white mb-2">Modes de tracking</h3>
-              <ul className="space-y-2 text-gray-300">
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400">🟦</span>
-                  <div>
-                    <strong>Boîte</strong> - Utilise le centre de la boîte
-                    englobante autour de la personne
-                  </div>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400">🦴</span>
-                  <div>
-                    <strong>Squelette</strong> - Utilise le centre de tous les
-                    points du squelette détectés
-                  </div>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400">🫀</span>
-                  <div>
-                    <strong>Tronc</strong> - Utilise le centre des hanches (plus
-                    précis pour le comptage)
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
       </main>
-
-      {/* Footer */}
-      <footer className="mt-8 py-4 text-center text-gray-500 text-sm">
-        Propulsé par MediaPipe Vision • React • Tailwind CSS
-      </footer>
     </div>
   );
 }

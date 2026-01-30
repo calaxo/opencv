@@ -2,8 +2,8 @@
 services:
   back:
 
-    image: ghcr.io/calaxo/cesimonitoringsystem:latest
-    container_name: hutc-back
+    image: ghcr.io/calaxo/opencv:latest
+    container_name: opencv
 
     ports:
       - "5500:5500"
