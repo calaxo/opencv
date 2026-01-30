@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import {
   PoseLandmarker,
   FilesetResolver,
@@ -192,6 +193,72 @@ function App() {
           ctx.font = "bold 14px Arial";
           ctx.textAlign = "center";
           ctx.fillText("LIGNE DE COMPTAGE", lineX, 30);
+
+          // === LÉGENDE en haut à gauche ===
+          const legendX = 15;
+          const legendY = 60;
+          const legendPadding = 10;
+          const lineHeight = 22;
+
+          // Fond de la légende
+          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+          ctx.fillRect(legendX, legendY, 180, 85);
+          ctx.strokeStyle = "#ff6b35";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(legendX, legendY, 180, 85);
+
+          ctx.font = "bold 11px monospace";
+          ctx.textAlign = "left";
+
+          // Point rouge = brut
+          ctx.fillStyle = "#ff3333";
+          ctx.beginPath();
+          ctx.arc(legendX + legendPadding + 6, legendY + 20, 6, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(
+            "Position brute",
+            legendX + legendPadding + 20,
+            legendY + 24,
+          );
+
+          // Point vert = lissé
+          ctx.fillStyle = "#00ff88";
+          ctx.beginPath();
+          ctx.arc(
+            legendX + legendPadding + 6,
+            legendY + 20 + lineHeight,
+            8,
+            0,
+            2 * Math.PI,
+          );
+          ctx.fill();
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(
+            "Position lissée",
+            legendX + legendPadding + 20,
+            legendY + 24 + lineHeight,
+          );
+
+          // Ligne jaune = lien
+          ctx.strokeStyle = "#ffcc00";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(legendX + legendPadding, legendY + 20 + lineHeight * 2);
+          ctx.lineTo(
+            legendX + legendPadding + 12,
+            legendY + 20 + lineHeight * 2,
+          );
+          ctx.stroke();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(
+            "Écart brut/lissé",
+            legendX + legendPadding + 20,
+            legendY + 24 + lineHeight * 2,
+          );
 
           // Si le détecteur est prêt, faire la détection
           if (
@@ -469,25 +536,6 @@ function App() {
       }
 
       if (center) {
-        // Dessiner le centre du corps (point de tracking)
-        ctx.fillStyle = "#FFFFFF";
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, 10, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        // Dessiner une ligne horizontale pour montrer la position X
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, height);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
         // Chercher la personne la plus proche dans le tracking précédent
         let matchedId = null;
         let minDist = threshold;
@@ -503,31 +551,63 @@ function App() {
         // Position X normalisée de la ligne
         const normalizedLineX = lineX / width;
 
+        // Calculer la position lissée
+        let smoothedCenter = center;
+
         if (matchedId !== null) {
           const prevPerson = trackedPeopleRef.current.get(matchedId);
 
-          // Vérifier le passage de la ligne
+          // Lissage de la position (smoothing) - on garde 70% de l'ancienne position + 30% de la nouvelle
+          const smoothingFactor = 0.3;
+          smoothedCenter = {
+            x:
+              prevPerson.center.x * (1 - smoothingFactor) +
+              center.x * smoothingFactor,
+            y:
+              prevPerson.center.y * (1 - smoothingFactor) +
+              center.y * smoothingFactor,
+          };
+
+          // Vérifier le passage de la ligne avec la position lissée
           if (!prevPerson.counted) {
             // Passage de gauche à droite = Entrée
             if (
               prevPerson.center.x < normalizedLineX &&
-              center.x >= normalizedLineX
+              smoothedCenter.x >= normalizedLineX
             ) {
+              console.log(
+                `🚶 ENTRÉE détectée ! (${new Date().toLocaleTimeString()})`,
+              );
               setEntrances((prev) => prev + 1);
               prevPerson.counted = true;
+              // Enregistrer dans l'historique
+              fetch(`${API_BASE_URL}/counter/increment`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "entrance" })
+              }).catch(err => console.error("Erreur enregistrement entrée:", err));
             }
             // Passage de droite à gauche = Sortie
             else if (
               prevPerson.center.x > normalizedLineX &&
-              center.x <= normalizedLineX
+              smoothedCenter.x <= normalizedLineX
             ) {
+              console.log(
+                `🚪 SORTIE détectée ! (${new Date().toLocaleTimeString()})`,
+              );
               setExits((prev) => prev + 1);
               prevPerson.counted = true;
+              // Enregistrer dans l'historique
+              fetch(`${API_BASE_URL}/counter/increment`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "exit" })
+              }).catch(err => console.error("Erreur enregistrement sortie:", err));
             }
           }
 
           currentPeople.set(matchedId, {
-            center,
+            center: smoothedCenter, // On stocke la position lissée
             counted: prevPerson.counted,
             lastSeen: Date.now(),
           });
@@ -541,12 +621,58 @@ function App() {
           });
         }
 
+        // Coordonnées écran pour le point lissé
+        const smoothedScreenX = smoothedCenter.x * width;
+        const smoothedScreenY = smoothedCenter.y * height;
+
+        // === VISUALISATION ===
+
+        // 1. Point BRUT (position directe MediaPipe) - petit cercle rouge
+        ctx.fillStyle = "rgba(255, 50, 50, 0.7)";
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = "#ff0000";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 2. Ligne fantôme entre point brut et point lissé
+        ctx.strokeStyle = "#ffcc00";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY);
+        ctx.lineTo(smoothedScreenX, smoothedScreenY);
+        ctx.stroke();
+
+        // 3. Point LISSÉ (stabilisé) - gros cercle blanc/vert
+        ctx.fillStyle = "#00ff88";
+        ctx.beginPath();
+        ctx.arc(smoothedScreenX, smoothedScreenY, 10, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // 4. Ligne verticale pour la position X lissée
+        ctx.strokeStyle = "rgba(0, 255, 136, 0.3)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(smoothedScreenX, 0);
+        ctx.lineTo(smoothedScreenX, height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
         // Afficher l'ID de la personne (sauf en mode bbox où c'est déjà fait)
         if (currentMode !== "bbox") {
           ctx.fillStyle = color;
           ctx.font = "bold 16px Arial";
           ctx.textAlign = "center";
-          ctx.fillText(`Personne ${index + 1}`, screenX, screenY - 20);
+          ctx.fillText(
+            `Personne ${index + 1}`,
+            smoothedScreenX,
+            smoothedScreenY - 20,
+          );
         }
       }
     });
@@ -592,7 +718,9 @@ function App() {
             <h1 className="text-lg font-bold tracking-wider uppercase text-white">
               People Counter
             </h1>
-            <div className={`w-2 h-2 rounded-full ${apiConnected ? "bg-[#00ff88]" : "bg-[#ffaa00]"}`}></div>
+            <div
+              className={`w-2 h-2 rounded-full ${apiConnected ? "bg-[#00ff88]" : "bg-[#ffaa00]"}`}
+            ></div>
           </div>
 
           {/* Sélecteur de mode */}
@@ -625,7 +753,7 @@ function App() {
                   : "text-[#888] hover:text-white hover:bg-[#222]"
               }`}
             >
-              Torso
+              Torse
             </button>
           </div>
 
@@ -640,6 +768,13 @@ function App() {
           >
             {isSyncing ? "..." : "Reset"}
           </button>
+
+          <Link
+            to="/stats"
+            className="px-4 py-1.5 text-xs uppercase tracking-wide border-2 border-[#00aaff] text-[#00aaff] hover:bg-[#00aaff] hover:text-black transition-all"
+          >
+            Stats →
+          </Link>
         </div>
       </header>
 
@@ -650,25 +785,26 @@ function App() {
             <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
               <div className="text-center">
                 <div className="w-12 h-12 border-2 border-[#ff6b35] border-t-transparent animate-spin mx-auto mb-4"></div>
-                <p className="text-xs uppercase tracking-widest text-[#666]">Initialisation...</p>
+                <p className="text-xs uppercase tracking-widest text-[#666]">
+                  Initialisation...
+                </p>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+            <div className="absolutftore inset-0 flex items-center justify-center bg-black z-10">
               <div className="text-center p-8 border border-[#ff3333] bg-[#111]">
-                <p className="text-[#ff3333] text-sm uppercase tracking-wide">{error}</p>
+                <p className="text-[#ff3333] text-sm uppercase tracking-wide">
+                  {error}
+                </p>
               </div>
             </div>
           )}
 
           <video ref={videoRef} autoPlay playsInline muted className="hidden" />
 
-          <canvas
-            ref={canvasRef}
-            className="w-full h-full object-contain"
-          />
+          <canvas ref={canvasRef} className="w-full h-full object-contain" />
 
           {/* Compteurs en overlay - style HUD */}
           {!isLoading && !error && (
@@ -676,26 +812,42 @@ function App() {
               <div className="flex justify-center gap-2">
                 {/* Détectées */}
                 <div className="bg-black/70 border-l-4 border-[#ff6b35] px-4 py-2 min-w-[120px]">
-                  <div className="text-[10px] uppercase tracking-widest text-[#ff6b35] mb-1">Détectées</div>
-                  <div className="text-2xl font-bold text-white tabular-nums">{detectedPeople}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#ff6b35] mb-1">
+                    Détectées
+                  </div>
+                  <div className="text-2xl font-bold text-white tabular-nums">
+                    {detectedPeople}
+                  </div>
                 </div>
 
                 {/* Entrées */}
                 <div className="bg-black/70 border-l-4 border-[#00ff88] px-4 py-2 min-w-[120px]">
-                  <div className="text-[10px] uppercase tracking-widest text-[#00ff88] mb-1">Entrées</div>
-                  <div className="text-2xl font-bold text-white tabular-nums">{entrances}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#00ff88] mb-1">
+                    Entrées
+                  </div>
+                  <div className="text-2xl font-bold text-white tabular-nums">
+                    {entrances}
+                  </div>
                 </div>
 
                 {/* À l'intérieur */}
                 <div className="bg-black/70 border-l-4 border-[#00aaff] px-4 py-2 min-w-[120px]">
-                  <div className="text-[10px] uppercase tracking-widest text-[#00aaff] mb-1">Intérieur</div>
-                  <div className="text-2xl font-bold text-white tabular-nums">{totalInside}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#00aaff] mb-1">
+                    Intérieur
+                  </div>
+                  <div className="text-2xl font-bold text-white tabular-nums">
+                    {totalInside}
+                  </div>
                 </div>
 
                 {/* Sorties */}
                 <div className="bg-black/70 border-l-4 border-[#ff3366] px-4 py-2 min-w-[120px]">
-                  <div className="text-[10px] uppercase tracking-widest text-[#ff3366] mb-1">Sorties</div>
-                  <div className="text-2xl font-bold text-white tabular-nums">{exits}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#ff3366] mb-1">
+                    Sorties
+                  </div>
+                  <div className="text-2xl font-bold text-white tabular-nums">
+                    {exits}
+                  </div>
                 </div>
               </div>
             </div>

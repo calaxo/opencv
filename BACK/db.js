@@ -1,477 +1,445 @@
-const mariadb = require("mariadb");
+const Database = require("better-sqlite3");
+const path = require("path");
+const fs = require("fs");
 
-let pool = null;
+let db = null;
 
 /**
- * Initialise le pool de connexions MariaDB
- * @returns {Promise<mariadb.Pool>}
+ * Initialise la base de données SQLite
+ * @returns {Database}
  */
-async function initDatabase() {
-  if (pool) {
-    return pool;
+function initDatabase() {
+  if (db) {
+    return db;
   }
 
-  pool = mariadb.createPool({
-    host: process.env.DB_HOST || "localhost",
-    port: parseInt(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASSWORD || "",
-    database: process.env.DB_NAME || "monitoring",
-    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
-    acquireTimeout: 30000,
-  });
-
-  // Tester la connexion
-  let conn;
-  try {
-    conn = await pool.getConnection();
-    console.log("✅ Connexion à MariaDB établie");
-
-    // Créer la table des capteurs (cartes Arduino émettrices)
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS sensors (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        sensor_id VARCHAR(100) UNIQUE NOT NULL,
-        name VARCHAR(255),
-        location VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_sensor_id (sensor_id)
-      )
-    `);
-    console.log("✅ Table sensors prête");
-
-    // Créer la table des données de capteurs
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS sensor_data (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        sensor_fk INT NOT NULL,
-        temperature DECIMAL(5, 2),
-        presence BOOLEAN,
-        received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (sensor_fk) REFERENCES sensors(id) ON DELETE CASCADE,
-        INDEX idx_sensor_fk (sensor_fk),
-        INDEX idx_received_at (received_at)
-      )
-    `);
-    console.log("✅ Table sensor_data prête");
-
-    // Créer la table du compteur de personnes
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS people_counter (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        entrances INT DEFAULT 0,
-        exits INT DEFAULT 0,
-        current_inside INT DEFAULT 0,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log("✅ Table people_counter prête");
-
-    // Insérer une ligne par défaut si la table est vide
-    const existingCounter = await conn.query("SELECT id FROM people_counter LIMIT 1");
-    if (existingCounter.length === 0) {
-      await conn.query("INSERT INTO people_counter (entrances, exits, current_inside) VALUES (0, 0, 0)");
-      console.log("✅ Compteur initialisé");
-    }
-
-  } catch (err) {
-    console.error("❌ Erreur de connexion à MariaDB:", err.message);
-    throw err;
-  } finally {
-    if (conn) conn.release();
+  const dbPath = process.env.DB_PATH || path.join(__dirname, "data", "database.sqlite");
+  
+  // Créer le dossier data s'il n'existe pas
+  const dataDir = path.dirname(dbPath);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  return pool;
+  db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  
+  console.log("✅ Connexion à SQLite établie:", dbPath);
+
+  // Créer la table des capteurs
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sensors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sensor_id TEXT UNIQUE NOT NULL,
+      name TEXT,
+      location TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  console.log("✅ Table sensors prête");
+
+  // Créer la table des données de capteurs
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sensor_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sensor_fk INTEGER NOT NULL,
+      temperature REAL,
+      presence INTEGER,
+      received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (sensor_fk) REFERENCES sensors(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sensor_data_fk ON sensor_data(sensor_fk)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sensor_data_received ON sensor_data(received_at)");
+  console.log("✅ Table sensor_data prête");
+
+  // Créer la table du compteur de personnes (valeurs actuelles)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS people_counter (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entrances INTEGER DEFAULT 0,
+      exits INTEGER DEFAULT 0,
+      current_inside INTEGER DEFAULT 0,
+      last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  console.log("✅ Table people_counter prête");
+
+  // Créer la table d'historique des comptages (pour les graphiques)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS counter_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL CHECK(event_type IN ('entrance', 'exit')),
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_counter_history_timestamp ON counter_history(timestamp)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_counter_history_type ON counter_history(event_type)");
+  console.log("✅ Table counter_history prête");
+
+  // Insérer une ligne par défaut si la table est vide
+  const existingCounter = db.prepare("SELECT id FROM people_counter LIMIT 1").get();
+  if (!existingCounter) {
+    db.prepare("INSERT INTO people_counter (entrances, exits, current_inside) VALUES (0, 0, 0)").run();
+    console.log("✅ Compteur initialisé");
+  }
+
+  return db;
 }
 
 /**
- * Récupère le pool de connexions
- * @returns {mariadb.Pool}
+ * Récupère l'instance de la base de données
+ * @returns {Database}
  */
-function getPool() {
-  if (!pool) {
+function getDb() {
+  if (!db) {
     throw new Error("Database not initialized. Call initDatabase() first.");
   }
-  return pool;
+  return db;
+}
+
+// Alias pour compatibilité
+function getPool() {
+  return getDb();
 }
 
 /**
  * Récupère ou crée un capteur par son ID unique
  * @param {string} sensorId - ID unique du capteur Arduino
- * @returns {Promise<number>} - ID de la clé primaire du capteur
+ * @returns {number} - ID de la clé primaire du capteur
  */
-async function getOrCreateSensor(sensorId) {
-  const conn = await pool.getConnection();
-  try {
-    // Vérifier si le capteur existe déjà
-    const existing = await conn.query(
-      "SELECT id FROM sensors WHERE sensor_id = ?",
-      [sensorId]
-    );
-
-    if (existing.length > 0) {
-      return existing[0].id;
-    }
-
-    // Créer le capteur s'il n'existe pas
-    const result = await conn.query(
-      "INSERT INTO sensors (sensor_id) VALUES (?)",
-      [sensorId]
-    );
-
-    return Number(result.insertId);
-  } finally {
-    conn.release();
+function getOrCreateSensor(sensorId) {
+  const existing = db.prepare("SELECT id FROM sensors WHERE sensor_id = ?").get(sensorId);
+  
+  if (existing) {
+    return existing.id;
   }
+
+  const result = db.prepare("INSERT INTO sensors (sensor_id) VALUES (?)").run(sensorId);
+  return result.lastInsertRowid;
 }
 
 /**
  * Récupère tous les capteurs enregistrés
- * @returns {Promise<Array>}
+ * @returns {Array}
  */
-async function getAllSensors() {
-  const conn = await pool.getConnection();
-  try {
-    const rows = await conn.query(
-      "SELECT * FROM sensors ORDER BY created_at DESC"
-    );
-    return rows;
-  } finally {
-    conn.release();
-  }
+function getAllSensors() {
+  return db.prepare("SELECT * FROM sensors ORDER BY created_at DESC").all();
 }
 
 /**
  * Met à jour les informations d'un capteur
  * @param {string} sensorId - ID unique du capteur
  * @param {object} data - Données à mettre à jour (name, location)
- * @returns {Promise<object>}
+ * @returns {object}
  */
-async function updateSensor(sensorId, data) {
-  const conn = await pool.getConnection();
-  try {
-    const result = await conn.query(
-      "UPDATE sensors SET name = ?, location = ? WHERE sensor_id = ?",
-      [data.name || null, data.location || null, sensorId]
-    );
-    return result;
-  } finally {
-    conn.release();
-  }
+function updateSensor(sensorId, data) {
+  return db.prepare("UPDATE sensors SET name = ?, location = ? WHERE sensor_id = ?")
+    .run(data.name || null, data.location || null, sensorId);
 }
 
 /**
  * Insère des données de capteur dans la base
  * @param {object} data - Données du message MQTT
- * @param {string} data.sensor_id - ID unique du capteur Arduino
- * @param {number} [data.temperature] - Température mesurée
- * @param {boolean} [data.presence] - Présence détectée
- * @returns {Promise<object>}
+ * @returns {object}
  */
-async function insertSensorData(data) {
-  const conn = await pool.getConnection();
-  try {
-    // Récupérer ou créer le capteur
-    const sensorFk = await getOrCreateSensor(data.sensor_id);
-
-    // Insérer les données (received_at est auto-généré par MariaDB)
-    const result = await conn.query(
-      `INSERT INTO sensor_data (sensor_fk, temperature, presence) 
-       VALUES (?, ?, ?)`,
-      [
-        sensorFk,
-        data.temperature !== undefined ? data.temperature : null,
-        data.presence !== undefined ? data.presence : null
-      ]
-    );
-
-    return result;
-  } finally {
-    conn.release();
-  }
+function insertSensorData(data) {
+  const sensorFk = getOrCreateSensor(data.sensor_id);
+  
+  return db.prepare(
+    "INSERT INTO sensor_data (sensor_fk, temperature, presence) VALUES (?, ?, ?)"
+  ).run(
+    sensorFk,
+    data.temperature !== undefined ? data.temperature : null,
+    data.presence !== undefined ? (data.presence ? 1 : 0) : null
+  );
 }
 
 /**
- * Récupère toutes les données de capteurs
+ * Récupère toutes les données de capteurs avec filtrage
  * @param {object} options - Options de filtrage
- * @returns {Promise<Array>}
+ * @returns {Array}
  */
-async function getAllSensorData(options = {}) {
-  const conn = await pool.getConnection();
-  try {
-    let query = `
-      SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location
-      FROM sensor_data sd
-      INNER JOIN sensors s ON sd.sensor_fk = s.id
-    `;
-    const params = [];
-    const conditions = [];
+function getAllSensorData(options = {}) {
+  let query = `
+    SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location 
+    FROM sensor_data sd
+    JOIN sensors s ON sd.sensor_fk = s.id
+    WHERE 1=1
+  `;
+  const params = [];
 
-    if (options.sensorId) {
-      conditions.push("s.sensor_id = ?");
-      params.push(options.sensorId);
-    }
-
-    if (options.from) {
-      conditions.push("sd.received_at >= ?");
-      params.push(options.from);
-    }
-
-    if (options.to) {
-      conditions.push("sd.received_at <= ?");
-      params.push(options.to);
-    }
-
-    // Filtrer par type de donnée (temperature ou presence)
-    if (options.dataType === 'temperature') {
-      conditions.push("sd.temperature IS NOT NULL");
-    } else if (options.dataType === 'presence') {
-      conditions.push("sd.presence IS NOT NULL");
-    }
-
-    if (conditions.length > 0) {
-      query += " WHERE " + conditions.join(" AND ");
-    }
-
-    query += " ORDER BY sd.received_at DESC";
-
-    if (options.limit) {
-      query += " LIMIT ?";
-      params.push(parseInt(options.limit));
-    }
-
-    if (options.offset) {
-      query += " OFFSET ?";
-      params.push(parseInt(options.offset));
-    }
-
-    const rows = await conn.query(query, params);
-    return rows;
-  } finally {
-    conn.release();
+  if (options.sensorId) {
+    query += " AND s.sensor_id = ?";
+    params.push(options.sensorId);
   }
+  if (options.dataType === "temperature") {
+    query += " AND sd.temperature IS NOT NULL";
+  }
+  if (options.dataType === "presence") {
+    query += " AND sd.presence IS NOT NULL";
+  }
+  if (options.from) {
+    query += " AND sd.received_at >= ?";
+    params.push(options.from);
+  }
+  if (options.to) {
+    query += " AND sd.received_at <= ?";
+    params.push(options.to);
+  }
+
+  query += " ORDER BY sd.received_at DESC LIMIT ? OFFSET ?";
+  params.push(parseInt(options.limit) || 100);
+  params.push(parseInt(options.offset) || 0);
+
+  return db.prepare(query).all(...params);
 }
 
 /**
  * Récupère les dernières données pour chaque capteur
- * @returns {Promise<Array>}
+ * @returns {Array}
  */
-async function getLatestSensorData() {
-  const conn = await pool.getConnection();
-  try {
-    const rows = await conn.query(`
-      SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location
-      FROM sensor_data sd
-      INNER JOIN sensors s ON sd.sensor_fk = s.id
-      INNER JOIN (
-        SELECT sensor_fk, MAX(received_at) as max_received_at
-        FROM sensor_data
-        GROUP BY sensor_fk
-      ) latest ON sd.sensor_fk = latest.sensor_fk AND sd.received_at = latest.max_received_at
-      ORDER BY sd.received_at DESC
-    `);
-    return rows;
-  } finally {
-    conn.release();
-  }
+function getLatestSensorData() {
+  return db.prepare(`
+    SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location 
+    FROM sensor_data sd
+    JOIN sensors s ON sd.sensor_fk = s.id
+    WHERE sd.id IN (
+      SELECT MAX(id) FROM sensor_data GROUP BY sensor_fk
+    )
+  `).all();
 }
 
 /**
- * Récupère les dernières données de température pour chaque capteur
- * @returns {Promise<Array>}
+ * Récupère les dernières températures pour chaque capteur
+ * @returns {Array}
  */
-async function getLatestTemperatureData() {
-  const conn = await pool.getConnection();
-  try {
-    const rows = await conn.query(`
-      SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location
-      FROM sensor_data sd
-      INNER JOIN sensors s ON sd.sensor_fk = s.id
-      INNER JOIN (
-        SELECT sensor_fk, MAX(received_at) as max_received_at
-        FROM sensor_data
-        WHERE temperature IS NOT NULL
-        GROUP BY sensor_fk
-      ) latest ON sd.sensor_fk = latest.sensor_fk AND sd.received_at = latest.max_received_at
-      WHERE sd.temperature IS NOT NULL
-      ORDER BY sd.received_at DESC
-    `);
-    return rows;
-  } finally {
-    conn.release();
-  }
+function getLatestTemperatureData() {
+  return db.prepare(`
+    SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location 
+    FROM sensor_data sd
+    JOIN sensors s ON sd.sensor_fk = s.id
+    WHERE sd.temperature IS NOT NULL
+    AND sd.id IN (
+      SELECT MAX(id) FROM sensor_data WHERE temperature IS NOT NULL GROUP BY sensor_fk
+    )
+  `).all();
 }
 
 /**
  * Récupère les dernières données de présence pour chaque capteur
- * @returns {Promise<Array>}
+ * @returns {Array}
  */
-async function getLatestPresenceData() {
-  const conn = await pool.getConnection();
-  try {
-    const rows = await conn.query(`
-      SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location
-      FROM sensor_data sd
-      INNER JOIN sensors s ON sd.sensor_fk = s.id
-      INNER JOIN (
-        SELECT sensor_fk, MAX(received_at) as max_received_at
-        FROM sensor_data
-        WHERE presence IS NOT NULL
-        GROUP BY sensor_fk
-      ) latest ON sd.sensor_fk = latest.sensor_fk AND sd.received_at = latest.max_received_at
-      WHERE sd.presence IS NOT NULL
-      ORDER BY sd.received_at DESC
-    `);
-    return rows;
-  } finally {
-    conn.release();
-  }
+function getLatestPresenceData() {
+  return db.prepare(`
+    SELECT sd.*, s.sensor_id, s.name as sensor_name, s.location as sensor_location 
+    FROM sensor_data sd
+    JOIN sensors s ON sd.sensor_fk = s.id
+    WHERE sd.presence IS NOT NULL
+    AND sd.id IN (
+      SELECT MAX(id) FROM sensor_data WHERE presence IS NOT NULL GROUP BY sensor_fk
+    )
+  `).all();
 }
 
 /**
  * Récupère les statistiques des capteurs
- * @returns {Promise<object>}
+ * @returns {object}
  */
-async function getSensorStats() {
-  const conn = await pool.getConnection();
-  try {
-    const totalMessages = await conn.query(
-      "SELECT COUNT(*) as count FROM sensor_data"
-    );
-    const uniqueSensors = await conn.query(
-      "SELECT COUNT(*) as count FROM sensors"
-    );
-    const temperatureReadings = await conn.query(
-      "SELECT COUNT(*) as count FROM sensor_data WHERE temperature IS NOT NULL"
-    );
-    const presenceReadings = await conn.query(
-      "SELECT COUNT(*) as count FROM sensor_data WHERE presence IS NOT NULL"
-    );
-    const lastMessage = await conn.query(
-      "SELECT received_at FROM sensor_data ORDER BY received_at DESC LIMIT 1"
-    );
-    const avgTemperature = await conn.query(
-      "SELECT AVG(temperature) as avg FROM sensor_data WHERE temperature IS NOT NULL"
-    );
-    const activePresence = await conn.query(
-      "SELECT COUNT(*) as count FROM sensor_data sd INNER JOIN (SELECT sensor_fk, MAX(received_at) as max_ts FROM sensor_data WHERE presence IS NOT NULL GROUP BY sensor_fk) latest ON sd.sensor_fk = latest.sensor_fk AND sd.received_at = latest.max_ts WHERE sd.presence = true"
-    );
+function getSensorStats() {
+  const totalMessages = db.prepare("SELECT COUNT(*) as count FROM sensor_data").get();
+  const uniqueSensors = db.prepare("SELECT COUNT(*) as count FROM sensors").get();
+  const temperatureReadings = db.prepare("SELECT COUNT(*) as count FROM sensor_data WHERE temperature IS NOT NULL").get();
+  const presenceReadings = db.prepare("SELECT COUNT(*) as count FROM sensor_data WHERE presence IS NOT NULL").get();
+  const lastMessage = db.prepare("SELECT received_at FROM sensor_data ORDER BY received_at DESC LIMIT 1").get();
+  const avgTemperature = db.prepare("SELECT AVG(temperature) as avg FROM sensor_data WHERE temperature IS NOT NULL").get();
 
-    return {
-      totalMessages: Number(totalMessages[0].count),
-      uniqueSensors: Number(uniqueSensors[0].count),
-      temperatureReadings: Number(temperatureReadings[0].count),
-      presenceReadings: Number(presenceReadings[0].count),
-      lastMessageAt: lastMessage[0]?.received_at || null,
-      avgTemperature: avgTemperature[0]?.avg ? Number(avgTemperature[0].avg).toFixed(2) : null,
-      activePresenceCount: Number(activePresence[0].count)
-    };
-  } finally {
-    conn.release();
-  }
+  return {
+    totalMessages: totalMessages.count,
+    uniqueSensors: uniqueSensors.count,
+    temperatureReadings: temperatureReadings.count,
+    presenceReadings: presenceReadings.count,
+    lastMessageAt: lastMessage?.received_at || null,
+    avgTemperature: avgTemperature?.avg ? Number(avgTemperature.avg).toFixed(2) : null
+  };
 }
 
-// ==================== PEOPLE COUNTER ====================
+// ========== PEOPLE COUNTER ==========
 
 /**
- * Récupère les données du compteur de personnes
- * @returns {Promise<object>}
+ * Récupère le compteur de personnes actuel
+ * @returns {object}
  */
-async function getPeopleCounter() {
-  const conn = await pool.getConnection();
-  try {
-    const rows = await conn.query("SELECT * FROM people_counter ORDER BY id DESC LIMIT 1");
-    if (rows.length > 0) {
-      return {
-        entrances: Number(rows[0].entrances),
-        exits: Number(rows[0].exits),
-        currentInside: Number(rows[0].current_inside),
-        lastUpdated: rows[0].last_updated
-      };
-    }
-    return { entrances: 0, exits: 0, currentInside: 0, lastUpdated: null };
-  } finally {
-    conn.release();
+function getPeopleCounter() {
+  const row = db.prepare("SELECT * FROM people_counter ORDER BY id DESC LIMIT 1").get();
+  if (row) {
+    return {
+      entrances: row.entrances,
+      exits: row.exits,
+      currentInside: row.current_inside,
+      lastUpdated: row.last_updated
+    };
   }
+  return { entrances: 0, exits: 0, currentInside: 0, lastUpdated: null };
 }
 
 /**
  * Met à jour les valeurs du compteur de personnes
  * @param {object} data - { entrances, exits }
- * @returns {Promise<object>}
+ * @returns {object}
  */
-async function updatePeopleCounter(data) {
-  const conn = await pool.getConnection();
-  try {
-    const entrances = data.entrances !== undefined ? Number(data.entrances) : 0;
-    const exits = data.exits !== undefined ? Number(data.exits) : 0;
-    const currentInside = entrances - exits;
+function updatePeopleCounter(data) {
+  const entrances = data.entrances !== undefined ? Number(data.entrances) : 0;
+  const exits = data.exits !== undefined ? Number(data.exits) : 0;
+  const currentInside = entrances - exits;
 
-    await conn.query(
-      `UPDATE people_counter SET entrances = ?, exits = ?, current_inside = ? ORDER BY id DESC LIMIT 1`,
-      [entrances, exits, currentInside]
-    );
+  db.prepare(
+    "UPDATE people_counter SET entrances = ?, exits = ?, current_inside = ?, last_updated = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM people_counter ORDER BY id DESC LIMIT 1)"
+  ).run(entrances, exits, currentInside);
 
-    return { entrances, exits, currentInside };
-  } finally {
-    conn.release();
-  }
+  return { entrances, exits, currentInside };
 }
 
 /**
- * Incrémente le compteur d'entrées ou de sorties
+ * Incrémente le compteur d'entrées ou de sorties et enregistre dans l'historique
  * @param {string} type - 'entrance' ou 'exit'
- * @returns {Promise<object>}
+ * @returns {object}
  */
-async function incrementPeopleCounter(type) {
-  const conn = await pool.getConnection();
-  try {
-    if (type === 'entrance') {
-      await conn.query(
-        "UPDATE people_counter SET entrances = entrances + 1, current_inside = entrances + 1 - exits ORDER BY id DESC LIMIT 1"
-      );
-    } else if (type === 'exit') {
-      await conn.query(
-        "UPDATE people_counter SET exits = exits + 1, current_inside = entrances - exits - 1 ORDER BY id DESC LIMIT 1"
-      );
-    }
-    
-    return await getPeopleCounter();
-  } finally {
-    conn.release();
+function incrementPeopleCounter(type) {
+  if (type === 'entrance') {
+    db.prepare(
+      "UPDATE people_counter SET entrances = entrances + 1, current_inside = entrances + 1 - exits, last_updated = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM people_counter ORDER BY id DESC LIMIT 1)"
+    ).run();
+  } else if (type === 'exit') {
+    db.prepare(
+      "UPDATE people_counter SET exits = exits + 1, current_inside = entrances - exits - 1, last_updated = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM people_counter ORDER BY id DESC LIMIT 1)"
+    ).run();
   }
+  
+  // Enregistrer dans l'historique
+  db.prepare("INSERT INTO counter_history (event_type) VALUES (?)").run(type);
+  
+  return getPeopleCounter();
 }
 
 /**
  * Réinitialise le compteur de personnes
- * @returns {Promise<object>}
+ * @returns {object}
  */
-async function resetPeopleCounter() {
-  const conn = await pool.getConnection();
-  try {
-    await conn.query(
-      "UPDATE people_counter SET entrances = 0, exits = 0, current_inside = 0 ORDER BY id DESC LIMIT 1"
-    );
-    return { entrances: 0, exits: 0, currentInside: 0 };
-  } finally {
-    conn.release();
-  }
+function resetPeopleCounter() {
+  db.prepare(
+    "UPDATE people_counter SET entrances = 0, exits = 0, current_inside = 0, last_updated = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM people_counter ORDER BY id DESC LIMIT 1)"
+  ).run();
+  return { entrances: 0, exits: 0, currentInside: 0 };
+}
+
+// ========== HISTORIQUE DES COMPTAGES ==========
+
+/**
+ * Enregistre un événement d'entrée ou de sortie dans l'historique
+ * @param {string} eventType - 'entrance' ou 'exit'
+ * @returns {object}
+ */
+function logCounterEvent(eventType) {
+  return db.prepare("INSERT INTO counter_history (event_type) VALUES (?)").run(eventType);
 }
 
 /**
- * Ferme le pool de connexions
+ * Récupère l'historique des comptages
+ * @param {object} options - { from, to, limit }
+ * @returns {Array}
  */
-async function closeDatabase() {
-  if (pool) {
-    await pool.end();
-    pool = null;
-    console.log("🔌 Connexion MariaDB fermée");
+function getCounterHistory(options = {}) {
+  let query = "SELECT * FROM counter_history WHERE 1=1";
+  const params = [];
+
+  if (options.from) {
+    query += " AND timestamp >= ?";
+    params.push(options.from);
+  }
+  if (options.to) {
+    query += " AND timestamp <= ?";
+    params.push(options.to);
+  }
+
+  query += " ORDER BY timestamp DESC";
+
+  if (options.limit) {
+    query += " LIMIT ?";
+    params.push(parseInt(options.limit));
+  }
+
+  return db.prepare(query).all(...params);
+}
+
+/**
+ * Récupère les statistiques par période (heure, jour, etc.)
+ * @param {string} period - 'minute', 'hour', 'day', 'week', 'month'
+ * @param {string} from - Date de début
+ * @param {string} to - Date de fin
+ * @returns {Array}
+ */
+function getCounterStats(period = 'hour', from = null, to = null) {
+  let groupFormat;
+  switch (period) {
+    case 'minute':
+      groupFormat = "%Y-%m-%d %H:%M";
+      break;
+    case 'hour':
+      groupFormat = "%Y-%m-%d %H:00";
+      break;
+    case 'day':
+      groupFormat = "%Y-%m-%d";
+      break;
+    case 'week':
+      groupFormat = "%Y-%W";
+      break;
+    case 'month':
+      groupFormat = "%Y-%m";
+      break;
+    default:
+      groupFormat = "%Y-%m-%d %H:00";
+  }
+
+  let query = `
+    SELECT 
+      strftime('${groupFormat}', timestamp) as period,
+      SUM(CASE WHEN event_type = 'entrance' THEN 1 ELSE 0 END) as entrances,
+      SUM(CASE WHEN event_type = 'exit' THEN 1 ELSE 0 END) as exits
+    FROM counter_history
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (from) {
+    query += " AND timestamp >= ?";
+    params.push(from);
+  }
+  if (to) {
+    query += " AND timestamp <= ?";
+    params.push(to);
+  }
+
+  query += ` GROUP BY strftime('${groupFormat}', timestamp) ORDER BY period ASC`;
+
+  return db.prepare(query).all(...params);
+}
+
+/**
+ * Ferme la base de données
+ */
+function closeDatabase() {
+  if (db) {
+    db.close();
+    db = null;
+    console.log("🔌 Connexion SQLite fermée");
   }
 }
 
 module.exports = {
   initDatabase,
+  getDb,
   getPool,
   getOrCreateSensor,
   getAllSensors,
@@ -487,5 +455,9 @@ module.exports = {
   getPeopleCounter,
   updatePeopleCounter,
   incrementPeopleCounter,
-  resetPeopleCounter
+  resetPeopleCounter,
+  // Historique
+  logCounterEvent,
+  getCounterHistory,
+  getCounterStats
 };

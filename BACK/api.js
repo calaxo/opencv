@@ -11,7 +11,10 @@ const {
   getPeopleCounter,
   updatePeopleCounter,
   incrementPeopleCounter,
-  resetPeopleCounter
+  resetPeopleCounter,
+  // Historique
+  getCounterHistory,
+  getCounterStats
 } = require("./db");
 
 const router = express.Router();
@@ -273,9 +276,9 @@ router.post("/mqtt/publish", async (req, res) => {
  * GET /api/counter
  * Récupérer les données actuelles du compteur de personnes
  */
-router.get("/counter", async (req, res) => {
+router.get("/counter", (req, res) => {
   try {
-    const data = await getPeopleCounter();
+    const data = getPeopleCounter();
     res.json({
       success: true,
       data
@@ -294,10 +297,10 @@ router.get("/counter", async (req, res) => {
  * Mettre à jour les valeurs du compteur
  * Body: { entrances: number, exits: number }
  */
-router.put("/counter", async (req, res) => {
+router.put("/counter", (req, res) => {
   try {
     const { entrances, exits } = req.body;
-    const data = await updatePeopleCounter({ entrances, exits });
+    const data = updatePeopleCounter({ entrances, exits });
     res.json({
       success: true,
       data
@@ -316,7 +319,7 @@ router.put("/counter", async (req, res) => {
  * Incrémenter le compteur d'entrées ou de sorties
  * Body: { type: 'entrance' | 'exit' }
  */
-router.post("/counter/increment", async (req, res) => {
+router.post("/counter/increment", (req, res) => {
   try {
     const { type } = req.body;
     
@@ -327,7 +330,7 @@ router.post("/counter/increment", async (req, res) => {
       });
     }
     
-    const data = await incrementPeopleCounter(type);
+    const data = incrementPeopleCounter(type);
     res.json({
       success: true,
       data
@@ -347,7 +350,7 @@ router.post("/counter/increment", async (req, res) => {
  */
 router.post("/counter/reset", async (req, res) => {
   try {
-    const data = await resetPeopleCounter();
+    const data = resetPeopleCounter();
     res.json({
       success: true,
       message: "Compteur réinitialisé",
@@ -355,6 +358,63 @@ router.post("/counter/reset", async (req, res) => {
     });
   } catch (err) {
     console.error("Erreur API POST /counter/reset:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+// ==================== HISTORIQUE DES COMPTAGES ====================
+
+/**
+ * GET /api/counter/history
+ * Récupérer l'historique des événements d'entrée/sortie
+ * Query params: from, to, limit
+ */
+router.get("/counter/history", (req, res) => {
+  try {
+    const options = {
+      from: req.query.from,
+      to: req.query.to,
+      limit: req.query.limit
+    };
+    
+    const data = getCounterHistory(options);
+    res.json({
+      success: true,
+      count: data.length,
+      data
+    });
+  } catch (err) {
+    console.error("Erreur API GET /counter/history:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+/**
+ * GET /api/counter/stats
+ * Récupérer les statistiques de comptage agrégées par période
+ * Query params: period (minute|hour|day|week|month), from, to
+ */
+router.get("/counter/stats", (req, res) => {
+  try {
+    const period = req.query.period || 'hour';
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    
+    const data = getCounterStats(period, from, to);
+    res.json({
+      success: true,
+      period,
+      count: data.length,
+      data
+    });
+  } catch (err) {
+    console.error("Erreur API GET /counter/stats:", err);
     res.status(500).json({
       success: false,
       error: err.message
