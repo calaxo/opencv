@@ -6,7 +6,8 @@ import {
 } from "@mediapipe/tasks-vision";
 
 // Configuration de l'API Backend
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5500/api";
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5500/api";
 
 // Connexions du squelette pour le dessin
 const POSE_CONNECTIONS = [
@@ -62,19 +63,22 @@ function App() {
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
-    
+
     syncTimeoutRef.current = setTimeout(async () => {
-      if (newEntrances === lastSyncedEntrances.current && newExits === lastSyncedExits.current) {
+      if (
+        newEntrances === lastSyncedEntrances.current &&
+        newExits === lastSyncedExits.current
+      ) {
         return;
       }
-      
+
       try {
         const response = await fetch(`${API_BASE_URL}/counter`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entrances: newEntrances, exits: newExits })
+          body: JSON.stringify({ entrances: newEntrances, exits: newExits }),
         });
-        
+
         if (response.ok) {
           lastSyncedEntrances.current = newEntrances;
           lastSyncedExits.current = newExits;
@@ -105,7 +109,7 @@ function App() {
         setApiConnected(false);
       }
     };
-    
+
     loadInitialData();
   }, []);
 
@@ -553,121 +557,108 @@ function App() {
   // Reset des compteurs
   const handleReset = async () => {
     setIsSyncing(true);
-    
+
     // Reset local
     setEntrances(0);
     setExits(0);
     trackedPeopleRef.current = new Map();
     lastSyncedEntrances.current = 0;
     lastSyncedExits.current = 0;
-    
+
     // Reset sur l'API
     if (apiConnected) {
       try {
         await fetch(`${API_BASE_URL}/counter/reset`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
         });
       } catch (err) {
         console.error("Erreur reset API:", err);
       }
     }
-    
+
     setIsSyncing(false);
   };
 
   const totalInside = entrances - exits;
 
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col">
-      {/* Header compact */}
-      <header className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-2 flex-shrink-0">
-        <div className="container mx-auto flex items-center justify-between flex-wrap gap-2">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-            🚶 Compteur de Personnes
-          </h1>
+    <div className="h-screen overflow-hidden bg-[#0a0a0a] text-[#e0e0e0] flex flex-col font-mono">
+      {/* Header minimaliste */}
+      <header className="bg-[#111] border-b-2 border-[#ff6b35] px-4 py-2 flex-shrink-0">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-8 bg-[#ff6b35]"></div>
+            <h1 className="text-lg font-bold tracking-wider uppercase text-white">
+              People Counter
+            </h1>
+            <div className={`w-2 h-2 rounded-full ${apiConnected ? "bg-[#00ff88]" : "bg-[#ffaa00]"}`}></div>
+          </div>
 
-          {/* Sélecteur de mode de tracking */}
-          <div className="flex items-center gap-2 bg-gray-700/50 rounded-lg p-1">
-            <span className="text-sm text-gray-400 px-2">Mode:</span>
+          {/* Sélecteur de mode */}
+          <div className="flex items-center gap-1 bg-[#1a1a1a] p-1">
             <button
               onClick={() => setTrackingMode("bbox")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+              className={`px-3 py-1 text-xs uppercase tracking-wide transition-all ${
                 trackingMode === "bbox"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-300 hover:bg-gray-600"
+                  ? "bg-[#ff6b35] text-black font-bold"
+                  : "text-[#888] hover:text-white hover:bg-[#222]"
               }`}
             >
-              🟦 Boîte
+              Box
             </button>
             <button
               onClick={() => setTrackingMode("skeleton")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+              className={`px-3 py-1 text-xs uppercase tracking-wide transition-all ${
                 trackingMode === "skeleton"
-                  ? "bg-purple-600 text-white"
-                  : "text-gray-300 hover:bg-gray-600"
+                  ? "bg-[#ff6b35] text-black font-bold"
+                  : "text-[#888] hover:text-white hover:bg-[#222]"
               }`}
             >
-              🦴 Squelette
+              Skeleton
             </button>
             <button
               onClick={() => setTrackingMode("torso")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+              className={`px-3 py-1 text-xs uppercase tracking-wide transition-all ${
                 trackingMode === "torso"
-                  ? "bg-green-600 text-white"
-                  : "text-gray-300 hover:bg-gray-600"
+                  ? "bg-[#ff6b35] text-black font-bold"
+                  : "text-[#888] hover:text-white hover:bg-[#222]"
               }`}
             >
-              🫀 Tronc
+              Torso
             </button>
-          </div>
-
-          {/* Indicateur de connexion API */}
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`}></div>
-            <span className="text-sm text-gray-400">
-              {apiConnected ? 'Connecté à la BDD' : 'Mode local'}
-            </span>
           </div>
 
           <button
             onClick={handleReset}
             disabled={isSyncing}
-            className={`px-4 py-2 rounded-lg font-semibold transition-colors duration-200 flex items-center gap-2 ${
-              isSyncing 
-                ? 'bg-gray-600 cursor-not-allowed' 
-                : 'bg-red-600 hover:bg-red-700'
+            className={`px-4 py-1.5 text-xs uppercase tracking-wide border-2 transition-all ${
+              isSyncing
+                ? "border-[#333] text-[#555] cursor-not-allowed"
+                : "border-[#ff6b35] text-[#ff6b35] hover:bg-[#ff6b35] hover:text-black"
             }`}
           >
-            {isSyncing ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                Réinitialisation...
-              </>
-            ) : (
-              <>🔄 Réinitialiser</>
-            )}
+            {isSyncing ? "..." : "Reset"}
           </button>
         </div>
       </header>
 
-      <main className="flex-1 p-2 overflow-hidden">
-        {/* Zone vidéo avec compteurs en overlay */}
-        <div className="relative rounded-xl overflow-hidden shadow-2xl bg-gray-800 h-full">
+      <main className="flex-1 overflow-hidden relative">
+        {/* Zone vidéo */}
+        <div className="relative h-full bg-black">
           {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-800 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
-                <p className="text-lg">Chargement du modèle MediaPipe...</p>
+                <div className="w-12 h-12 border-2 border-[#ff6b35] border-t-transparent animate-spin mx-auto mb-4"></div>
+                <p className="text-xs uppercase tracking-widest text-[#666]">Initialisation...</p>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-800 z-10">
-              <div className="text-center text-red-400 p-8">
-                <div className="text-6xl mb-4">⚠️</div>
-                <p className="text-lg">{error}</p>
+            <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+              <div className="text-center p-8 border border-[#ff3333] bg-[#111]">
+                <p className="text-[#ff3333] text-sm uppercase tracking-wide">{error}</p>
               </div>
             </div>
           )}
@@ -676,37 +667,35 @@ function App() {
 
           <canvas
             ref={canvasRef}
-            className="w-full h-full object-contain bg-gray-900"
+            className="w-full h-full object-contain"
           />
 
-          {/* Compteurs en overlay sur la vidéo */}
+          {/* Compteurs en overlay - style HUD */}
           {!isLoading && !error && (
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent p-4 pt-8">
-              <div className="grid grid-cols-4 gap-3">
-                <div className="bg-purple-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-purple-400/30">
-                  <div className="text-sm font-medium text-purple-200">Détectées</div>
-                  <div className="text-3xl font-bold">{detectedPeople}</div>
-                  <div className="text-purple-300 text-xs">En ce moment</div>
+            <div className="absolute bottom-0 left-0 right-0 p-3">
+              <div className="flex justify-center gap-2">
+                {/* Détectées */}
+                <div className="bg-black/70 border-l-4 border-[#ff6b35] px-4 py-2 min-w-[120px]">
+                  <div className="text-[10px] uppercase tracking-widest text-[#ff6b35] mb-1">Détectées</div>
+                  <div className="text-2xl font-bold text-white tabular-nums">{detectedPeople}</div>
                 </div>
 
-                <div className="bg-green-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-green-400/30">
-                  <div className="text-sm font-medium text-green-200">Entrées</div>
-                  <div className="text-3xl font-bold">{entrances}</div>
-                  <div className="text-green-300 text-xs">→ Vers la droite</div>
+                {/* Entrées */}
+                <div className="bg-black/70 border-l-4 border-[#00ff88] px-4 py-2 min-w-[120px]">
+                  <div className="text-[10px] uppercase tracking-widest text-[#00ff88] mb-1">Entrées</div>
+                  <div className="text-2xl font-bold text-white tabular-nums">{entrances}</div>
                 </div>
 
-                <div className="bg-blue-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-blue-400/30">
-                  <div className="text-sm font-medium text-blue-200">À l'intérieur</div>
-                  <div className="text-3xl font-bold">{totalInside}</div>
-                  <div className="text-blue-300 text-xs">
-                    {totalInside < 0 ? "Déjà présentes" : "Actuellement"}
-                  </div>
+                {/* À l'intérieur */}
+                <div className="bg-black/70 border-l-4 border-[#00aaff] px-4 py-2 min-w-[120px]">
+                  <div className="text-[10px] uppercase tracking-widest text-[#00aaff] mb-1">Intérieur</div>
+                  <div className="text-2xl font-bold text-white tabular-nums">{totalInside}</div>
                 </div>
 
-                <div className="bg-red-600/70 backdrop-blur-sm rounded-xl p-3 text-center border border-red-400/30">
-                  <div className="text-sm font-medium text-red-200">Sorties</div>
-                  <div className="text-3xl font-bold">{exits}</div>
-                  <div className="text-red-300 text-xs">← Vers la gauche</div>
+                {/* Sorties */}
+                <div className="bg-black/70 border-l-4 border-[#ff3366] px-4 py-2 min-w-[120px]">
+                  <div className="text-[10px] uppercase tracking-widest text-[#ff3366] mb-1">Sorties</div>
+                  <div className="text-2xl font-bold text-white tabular-nums">{exits}</div>
                 </div>
               </div>
             </div>
