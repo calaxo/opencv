@@ -2,8 +2,8 @@ services:
   back:
     image: ghcr.io/calaxo/opencv:latest
     container_name: opencv
-    ports:
-      - "5500:5500"
+    expose:
+      - "5500"
     restart: unless-stopped
     environment:
       DB_PATH: /app/data/database.sqlite
@@ -11,6 +11,30 @@ services:
       PORT: 5500
     volumes:
       - sqlite_data:/app/data
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+    depends_on:
+      - back
+
+networks:
+  web:
+    driver: bridge
 
 volumes:
   sqlite_data:
+  caddy_data:
+  caddy_config:

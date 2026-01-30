@@ -1,0 +1,18 @@
+# Configuration Caddy pour HTTPS automatique
+# Remplacez "votre-domaine.com" par votre vrai domaine
+
+ Option 1: Avec un vrai domaine (certificat Let's Encrypt automatique)
+ static.50.220.62.46.clients.your-server.de {
+     reverse_proxy back:5500
+ }
+
+# Option 2: Pour un accès local/IP avec HTTPS auto-signé
+:443 {
+    tls internal
+    reverse_proxy back:5500
+}
+
+# Redirection HTTP vers HTTPS
+:80 {
+    redir https://{host}{uri} permanent
+}

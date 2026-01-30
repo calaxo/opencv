@@ -27,8 +27,18 @@ ChartJS.register(
   Filler,
 );
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5500/api";
+// Configuration de l'API Backend - détection automatique en production
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (import.meta.env.PROD) {
+    return `${window.location.origin}/api`;
+  }
+  return "http://localhost:5500/api";
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 function Stats() {
   const [statsData, setStatsData] = useState([]);

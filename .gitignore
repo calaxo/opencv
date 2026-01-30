@@ -1,2 +1,3 @@
 /BACK/node_modules
 .env
+BACK/data/database.sqlite-wal

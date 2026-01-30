@@ -6,9 +6,21 @@ import {
   DrawingUtils,
 } from "@mediapipe/tasks-vision";
 
-// Configuration de l'API Backend
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5500/api";
+// Configuration de l'API Backend - détection automatique en production
+const getApiBaseUrl = () => {
+  // Si une variable d'environnement est définie, l'utiliser
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // En production, utiliser l'URL actuelle du navigateur
+  if (import.meta.env.PROD) {
+    return `${window.location.origin}/api`;
+  }
+  // En développement, utiliser localhost
+  return "http://localhost:5500/api";
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Connexions du squelette pour le dessin
 const POSE_CONNECTIONS = [
