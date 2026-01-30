@@ -423,7 +423,18 @@ function getCounterStats(period = 'hour', from = null, to = null) {
 
   query += ` GROUP BY strftime('${groupFormat}', timestamp) ORDER BY period ASC`;
 
-  return db.prepare(query).all(...params);
+  const results = db.prepare(query).all(...params);
+  
+  // Calculer le nombre de personnes présentes de manière cumulative
+  let currentInside = 0;
+  return results.map(row => {
+    currentInside += row.entrances - row.exits;
+    if (currentInside < 0) currentInside = 0;
+    return {
+      ...row,
+      currentInside
+    };
+  });
 }
 
 /**
